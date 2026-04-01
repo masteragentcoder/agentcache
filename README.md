@@ -422,6 +422,57 @@ agentcache/
   core/          -- AgentSession, Message, Usage, ToolSpec
 ```
 
+## Technical contributions
+
+agentcache is an independent Python implementation for cache-aware multi-agent orchestration, inspired by ideas from Claude Code-style agent workflows but designed around a stronger cache-first execution model. Where most frameworks treat caching as a side optimization, agentcache makes prefix preservation the core abstraction.
+
+This project introduces two design patterns for cache-aware LLM orchestration:
+
+**1. Prefix-Preserving Fork (PPF)**
+
+A multi-agent orchestration primitive where all sub-agents inherit an identical, frozen prompt prefix from a parent session, ensuring provider-side KV cache hits on every fork. The prefix is captured as an immutable snapshot (`CacheSafeParams`) before forking, and a compatibility checker validates that no fork parameter can cause prefix drift. Cache misses are diagnosed automatically by hashing prompt state before and after each call and diffing the snapshots.
+
+```
+1. Start one session with a shared system prompt
+2. First call establishes the cached prefix
+3. For N workers, fork instead of creating new sessions:
+   parent: [system, msg1, msg2, ...]
+   fork:   [system, msg1, msg2, ..., WORKER_TASK]
+           ^ identical prefix = cache hit
+4. Freeze prefix (model, tools, messages) before forking
+5. On cache miss, diff state and report what changed
+```
+
+> Key invariant: `fork_messages[:len(prefix)] == parent_messages` byte-for-byte, for every fork.
+
+**2. Cache-Safe Compaction (CSC)**
+
+A context-trimming strategy that preserves cache-hit eligibility across forks. Tool results exceeding a token budget are replaced with deterministic placeholders *before* the LLM call, making the compacted form the canonical cache key. Replacement decisions are recorded in a `ReplacementState` log that is *cloned* (not reset) on fork, guaranteeing that all forks produce bit-identical prefixes after compaction. This allows aggressive context reduction (e.g. 150K to 38K tokens) without breaking prefix alignment.
+
+```
+1. Scan tool outputs before each call
+2. If too large, replace with a placeholder + log it
+3. The compacted version becomes the cache key
+4. Forks reuse the same replacement log = identical bytes
+5. Result: smaller context, same cacheable prefix
+```
+
+> Key invariant: `budgeter.enforce(prefix, cloned_state) == budgeter.enforce(prefix, original_state)` for all prefixes.
+
+**Citation**
+
+If you use or build on these patterns, please cite this repository:
+
+```
+@software{agentcache2025,
+  author       = {masteragentcoder},
+  title        = {agentcache: Cache-aware multi-agent orchestration for LLM agents},
+  year         = {2025},
+  url          = {https://github.com/masteragentcoder/agentcache},
+  note         = {Introduces Prefix-Preserving Fork (PPF) and Cache-Safe Compaction (CSC) patterns}
+}
+```
+
 ## Supply-chain note
 
 LiteLLM is pinned to `==1.83.0`. Versions 1.82.7 and 1.82.8 had reported malicious releases on PyPI. Upgrades should be deliberate, hash-locked, and tested against cache-compatibility regressions.
