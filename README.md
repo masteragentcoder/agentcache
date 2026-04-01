@@ -7,13 +7,13 @@ Run helper agents that **reuse the parent's cacheable prefix** while keeping **m
 ## Install
 
 ```bash
-pip install "git+https://github.com/masterFoad/agentcache.git@main"
+pip install "git+https://github.com/masteragentcoder/agentcache.git@main"
 ```
 
 With CLI and rich output:
 
 ```bash
-pip install "git+https://github.com/masterFoad/agentcache.git@main#egg=agentcache[cli]"
+pip install "git+https://github.com/masteragentcoder/agentcache.git@main#egg=agentcache[cli]"
 ```
 
 ## Quick start

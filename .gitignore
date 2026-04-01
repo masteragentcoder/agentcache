@@ -46,4 +46,7 @@ desktop.ini
 
 # Documents not to push
 design.md
-impl_details.md
+impl_details.mdopen-multi-agent-main/
+agent-transcripts/
+terminals/
+mcps/

@@ -6,7 +6,7 @@ try:
     import typer
 except ImportError:
     raise SystemExit(
-        "CLI requires the 'cli' extra: pip install 'git+https://github.com/masterFoad/agentcache.git@main#egg=agentcache[cli]'"
+        "CLI requires the 'cli' extra: pip install 'git+https://github.com/masteragentcoder/agentcache.git@main#egg=agentcache[cli]'"
     )
 
 from agentcache.cli.cache import cache_app
