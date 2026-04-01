@@ -2,9 +2,9 @@
 
 Cache-aware multi-agent orchestration for LLM agents.
 
-**Every other multi-agent framework creates a fresh context per agent. agentcache shares one prompt prefix across all agents, so the provider's KV cache kicks in automatically.** You pay full price once, then get 50% off (OpenAI), 75% off (Google), or 90% off (Anthropic) on every subsequent agent call -- with zero code changes to your prompts.
+**Most multi-agent workflows rebuild near-identical context in every call. agentcache shares one prompt prefix across all agents, so the provider's KV cache kicks in automatically.** You pay full price once, then get a significant discount on every subsequent agent call -- up to 90% off on Anthropic and Gemini 2.5+, and model-dependent discounts on OpenAI (often 50-90% off cached input tokens).
 
-In practice, forked agents hit **80-99% cache rates** on the shared prefix. A 4-worker research team saves ~9,000 cached tokens per run. A 7-task DAG runs 1.6x faster than sequential with 35% overall cache hits.
+In our benchmark runs, forked agents hit **80-99% cache rates** on the shared prefix. A 4-worker research team saves ~9,000 cached tokens per run. A 7-task DAG runs 1.6x faster than sequential with 35% overall cache hits.
 
 
 ## Install
@@ -227,9 +227,9 @@ asyncio.run(main())
 
 ## Core algorithm: prefix-preserving forks
 
-Most multi-agent frameworks create a fresh context per agent. Each agent pays full price for its own system prompt and message history. agentcache does the opposite: **all agents share one session, and every sub-task is a fork that preserves the parent's exact prompt prefix.**
+Many multi-agent implementations end up giving each agent its own system prompt, message history, or tool schema. Each agent pays full price for its own context. agentcache does the opposite: **all agents share one session, and every sub-task is a fork that preserves the parent's exact prompt prefix.**
 
-Here's why this works. LLM providers (OpenAI, Anthropic, Google) cache the KV attention state of prompt prefixes. If two API calls share the same prefix byte-for-byte, the second call skips recomputing attention for that prefix and charges a discounted rate (50% off on OpenAI, 75% off on Google, 90% off on Anthropic).
+Here's why this works. LLM providers (OpenAI, Anthropic, Google) cache the KV attention state of prompt prefixes on exact prefix matches. If two API calls share the same prefix byte-for-byte, the second call skips recomputing attention for that prefix and charges a discounted rate. The exact discount varies by provider and model -- Anthropic cached reads cost 10% of base input price (though cache writes cost 25% extra), Google gives up to 90% off on Gemini 2.5+ with implicit caching enabled by default, and OpenAI's discount is model-dependent (up to 90% off on newer models). The setup also differs: OpenAI caches automatically on prefix match, Anthropic requires `cache_control` headers, and Google uses implicit caching above a minimum token threshold.
 
 The algorithm:
 
@@ -266,23 +266,23 @@ The algorithm:
    "system prompt changed (+321 chars)", "tool schema changed", "model swapped".
 ```
 
-The per-fork cache hit rate is typically **80-99%**. The overall session rate looks lower (34-38%) because the first call that establishes the prefix can't benefit from cache -- but every subsequent fork does.
+In our runs, the per-fork cache hit rate is **80-99%**. The overall session rate looks lower (34-38%) because the first call that establishes the prefix can't benefit from cache -- but every subsequent fork does.
 
 ### Why not just let the provider cache automatically?
 
-Providers *do* cache automatically -- but only if you send the same prefix. Most frameworks break this by accident:
+Providers *do* cache automatically -- but only when you send the same prefix. Many common multi-agent patterns in frameworks like CrewAI, AutoGen, and LangGraph can end up fragmenting cacheable prefixes, unless you specifically design around it:
 
-| Framework pattern | What happens | Cache hit? |
+| Common pattern | What happens | Cache hit? |
 |---|---|---|
 | Separate session per agent | Each agent has its own system prompt and history | No -- different prefixes |
 | Shared system prompt, separate histories | Prefix diverges after first message | Partial -- only system prompt cached |
-| **agentcache fork** | **Exact same prefix + append-only** | **Yes -- 80-99% of prefix cached** |
+| **agentcache fork** | **Exact same prefix + append-only** | **Yes -- 80-99% of prefix cached in our runs** |
 
-agentcache doesn't replace your provider's caching -- it structures your calls so the caching actually fires.
+agentcache doesn't replace your provider's caching -- it structures your calls so the caching actually fires. Some frameworks (notably LangGraph) support shared state and could achieve similar results with careful design, but agentcache makes prefix preservation the default.
 
-### Proven results
+### Benchmark results (from repo examples)
 
-Real run of [`deep_research.py`](examples/deep_research.py) on `gpt-4o-mini`:
+Run of [`deep_research.py`](examples/deep_research.py) on `gpt-4o-mini`:
 
 ```
 Call 1 (plan research):    2,706 input tokens | 0 cached      (cache creation)
@@ -291,7 +291,7 @@ Call 3 (worker fork):      2,847 input tokens | 2,816 cached   (99% cache hit)
 Call 4 (synthesis fork):   2,872 input tokens | 2,816 cached   (98% cache hit)
 ```
 
-### Multi-agent team (real run)
+### Multi-agent team
 
 [`agent_team.py`](examples/agent_team.py) -- coordinator + 3 specialists on `gpt-4o-mini`:
 
@@ -304,7 +304,7 @@ Total: 17,190 tokens | 9,088 cached (38.2% overall)
 Without caching, full-price input would be 23,789 tokens.
 ```
 
-### Task DAG scheduling (real run)
+### Task DAG scheduling
 
 [`task_dag.py`](examples/task_dag.py) -- 7 tasks with dependency edges, topological sort:
 
@@ -379,7 +379,7 @@ This matters because coding agents like Cursor, Windsurf, and Claude Code genera
 | [`basic_chat.py`](examples/basic_chat.py) | Simplest usage: create a session, send a message, check cache status. |
 | [`side_question.py`](examples/side_question.py) | Branch a conversation with a cache-safe ephemeral helper fork. |
 | [`deep_research.py`](examples/deep_research.py) | **(Recommended)** Parallel workers explore different angles, then synthesize -- all sharing one cached prefix. |
-| [`agent_team.py`](examples/agent_team.py) | Multi-agent team using `TeamRunner`: coordinator + 3 specialists. 38.2% cache hit rate proven. |
+| [`agent_team.py`](examples/agent_team.py) | Multi-agent team using `TeamRunner`: coordinator + 3 specialists. 38.2% cache hit rate in our runs. |
 | [`task_dag.py`](examples/task_dag.py) | Task DAG using `DAGRunner`: 7 tasks, topological waves, 1.64x speedup. |
 | [`smoke_test_cache.py`](examples/smoke_test_cache.py) | Validates cache tracking with a padded system prompt past the 1,024-token minimum. |
 | [`interactive_research.ipynb`](examples/interactive_research.ipynb) | Jupyter Notebook version of deep research with `nest_asyncio`. |
