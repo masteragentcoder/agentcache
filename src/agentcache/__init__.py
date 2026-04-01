@@ -1,4 +1,4 @@
-"""agentcache: cache-aware orchestration for LLM agents."""
+"""agentcache: cache-aware multi-agent orchestration for LLM agents."""
 
 from agentcache.cache.cache_safe_params import CacheSafeParams, CacheSafeParamsFactory
 from agentcache.cache.compatibility import CacheCompatibilityChecker
@@ -12,6 +12,8 @@ from agentcache.core.messages import Message, TextBlock, ToolCallBlock, ToolResu
 from agentcache.core.session import AgentSession
 from agentcache.core.tools import ToolSpec
 from agentcache.core.usage import Usage
+from agentcache.dag.scheduler import DAGResult, DAGRunner
+from agentcache.dag.task import Task, TaskDAG, TaskStatus
 from agentcache.fork.policies import ForkPolicy
 from agentcache.fork.result import ForkResult
 from agentcache.fork.runner import ForkRunner
@@ -19,10 +21,13 @@ from agentcache.memory.models import MemoryUpdate, SessionMemory
 from agentcache.memory.session_store import FileSessionMemoryStore
 from agentcache.providers.base import Provider, ProviderResponse, ReasoningConfig
 from agentcache.providers.litellm_sdk import LiteLLMSDKProvider
+from agentcache.team.config import AgentRole, TeamConfig
+from agentcache.team.runner import SpecialistReport, TeamResult, TeamRunner
 from agentcache.version import __version__
 
 __all__ = [
     "AgentCacheError",
+    "AgentRole",
     "AgentSession",
     "CacheBreakExplanation",
     "CacheCompatibilityChecker",
@@ -32,6 +37,8 @@ __all__ = [
     "CacheUnsafeForkError",
     "CompactPolicy",
     "CompactResult",
+    "DAGResult",
+    "DAGRunner",
     "FileSessionMemoryStore",
     "ForkPolicy",
     "ForkResult",
@@ -47,6 +54,13 @@ __all__ = [
     "ReasoningConfig",
     "ReplacementState",
     "SessionMemory",
+    "SpecialistReport",
+    "Task",
+    "TaskDAG",
+    "TaskStatus",
+    "TeamConfig",
+    "TeamResult",
+    "TeamRunner",
     "TextBlock",
     "ToolCallBlock",
     "ToolResultBlock",

@@ -1,6 +1,11 @@
 """Side-question example: fork a cache-safe helper after a main turn."""
 
 import asyncio
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from agentcache import AgentSession, ForkPolicy, LiteLLMSDKProvider
 
@@ -8,8 +13,18 @@ from agentcache import AgentSession, ForkPolicy, LiteLLMSDKProvider
 async def main():
     provider = LiteLLMSDKProvider()
 
+    if os.getenv("OPENAI_API_KEY"):
+        model = "gpt-4o-mini"
+    elif os.getenv("GEMINI_API_KEY"):
+        model = "gemini/gemini-2.5-flash"
+    elif os.getenv("ANTHROPIC_API_KEY"):
+        model = "anthropic/claude-sonnet-4-20250514"
+    else:
+        print("Set OPENAI_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY in .env")
+        return
+
     session = AgentSession(
-        model="anthropic/claude-sonnet-4-20250514",
+        model=model,
         provider=provider,
         system_prompt="You are a careful code assistant.",
     )

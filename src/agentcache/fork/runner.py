@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Awaitable
 
 from agentcache.cache.cache_safe_params import CacheSafeParams
 from agentcache.cache.compatibility import CacheCompatibilityChecker, CompatibilityLevel
@@ -20,10 +20,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+ToolExecutor = Callable[[str, str, dict[str, Any]], Awaitable[str] | str]
+
 
 class ForkRunner:
-    def __init__(self, provider: Provider) -> None:
+    def __init__(
+        self,
+        provider: Provider,
+        tool_executor: ToolExecutor | None = None,
+    ) -> None:
         self.provider = provider
+        self.tool_executor = tool_executor
 
     async def run(
         self,
@@ -67,9 +74,8 @@ class ForkRunner:
                 break
 
             for tc in response.message.tool_calls:
-                fork_messages.append(
-                    Message.tool_result(tc.id, f"[tool '{tc.name}' not available in fork]")
-                )
+                result_text = await self._execute_tool(tc.id, tc.name, tc.arguments)
+                fork_messages.append(Message.tool_result(tc.id, result_text))
 
         return ForkResult(
             messages=fork_messages[len(cache_safe.messages_prefix) :],
@@ -78,3 +84,15 @@ class ForkRunner:
             purpose=policy.purpose,
             turns_used=turns_used,
         )
+
+    async def _execute_tool(
+        self, tool_call_id: str, name: str, arguments: dict[str, Any]
+    ) -> str:
+        if self.tool_executor is None:
+            return f"[tool '{name}' not available in fork]"
+        import asyncio
+
+        result = self.tool_executor(tool_call_id, name, arguments)
+        if asyncio.iscoroutine(result) or asyncio.isfuture(result):
+            return await result  # type: ignore[misc]
+        return result  # type: ignore[return-value]

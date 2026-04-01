@@ -1,8 +1,7 @@
-"""Task DAG: topological scheduling with parallel execution of independent tasks.
+"""Task DAG using agentcache's built-in TaskDAG and DAGRunner.
 
-Demonstrates that agentcache sessions + asyncio can implement dependency-aware
-task scheduling without a built-in DAG engine.  Independent tasks run in
-parallel (cache-safe forks), dependent tasks wait for their prerequisites.
+Demonstrates dependency-aware topological scheduling with parallel execution
+of independent tasks.  All tasks fork from one shared session for cache hits.
 
 The DAG for this example (a product launch plan):
 
@@ -21,13 +20,12 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from agentcache import AgentSession, ForkPolicy, LiteLLMSDKProvider, Usage
+from agentcache import DAGRunner, LiteLLMSDKProvider, TaskDAG
 
 PADDING = "".join(
     f"Planning principle #{i}: Each task produces a structured deliverable. "
@@ -43,21 +41,14 @@ SYSTEM_PROMPT = (
     + PADDING
 )
 
-
-@dataclass
-class Task:
-    name: str
-    prompt_template: str
-    depends_on: list[str] = field(default_factory=list)
-    result: str = ""
-    usage: Usage = field(default_factory=Usage)
-    elapsed: float = 0.0
-
-
 PRODUCT = "AI-powered meal planning app that generates personalized weekly meal plans"
 
-TASKS: dict[str, Task] = {
-    "market_research": Task(
+
+def build_dag() -> TaskDAG:
+    dag = TaskDAG()
+
+    dag.add_task(
+        id="market_research",
         name="Market Research",
         prompt_template=(
             "Conduct market research for: {product}\n\n"
@@ -67,8 +58,10 @@ TASKS: dict[str, Task] = {
             "- Willingness to pay (price sensitivity analysis)\n"
             "- 3 market trends supporting this product"
         ),
-    ),
-    "competitor_scan": Task(
+    )
+
+    dag.add_task(
+        id="competitor_scan",
         name="Competitor Scan",
         prompt_template=(
             "Analyze the competitive landscape for: {product}\n\n"
@@ -78,8 +71,10 @@ TASKS: dict[str, Task] = {
             "- Gaps in the market (unmet needs)\n"
             "- Differentiation opportunities"
         ),
-    ),
-    "user_interviews": Task(
+    )
+
+    dag.add_task(
+        id="user_interviews",
         name="User Interview Synthesis",
         prompt_template=(
             "Synthesize hypothetical user interview findings for: {product}\n\n"
@@ -89,8 +84,10 @@ TASKS: dict[str, Task] = {
             "- Dealbreakers (what makes users abandon similar apps)\n"
             "- Surprise insights (unexpected user needs)"
         ),
-    ),
-    "feature_spec": Task(
+    )
+
+    dag.add_task(
+        id="feature_spec",
         name="Feature Specification",
         prompt_template=(
             "Write a feature specification for: {product}\n\n"
@@ -104,8 +101,10 @@ TASKS: dict[str, Task] = {
             "- Technical feasibility notes"
         ),
         depends_on=["market_research", "competitor_scan"],
-    ),
-    "ux_design": Task(
+    )
+
+    dag.add_task(
+        id="ux_design",
         name="UX Design Brief",
         prompt_template=(
             "Create a UX design brief for: {product}\n\n"
@@ -118,8 +117,10 @@ TASKS: dict[str, Task] = {
             "- Accessibility requirements"
         ),
         depends_on=["user_interviews"],
-    ),
-    "implementation_plan": Task(
+    )
+
+    dag.add_task(
+        id="implementation_plan",
         name="Implementation Plan",
         prompt_template=(
             "Create an implementation plan for: {product}\n\n"
@@ -133,8 +134,10 @@ TASKS: dict[str, Task] = {
             "- Key technical risks and mitigations"
         ),
         depends_on=["feature_spec", "ux_design"],
-    ),
-    "final_review": Task(
+    )
+
+    dag.add_task(
+        id="final_review",
         name="Final Review & Go/No-Go",
         prompt_template=(
             "Produce a final go/no-go recommendation for: {product}\n\n"
@@ -149,57 +152,9 @@ TASKS: dict[str, Task] = {
             "- Recommended next steps"
         ),
         depends_on=["implementation_plan"],
-    ),
-}
-
-
-def topological_sort(tasks: dict[str, Task]) -> list[list[str]]:
-    """Return tasks grouped into waves; tasks within a wave are independent."""
-    in_degree: dict[str, int] = {name: 0 for name in tasks}
-    dependents: dict[str, list[str]] = {name: [] for name in tasks}
-
-    for name, task in tasks.items():
-        for dep in task.depends_on:
-            dependents[dep].append(name)
-            in_degree[name] += 1
-
-    waves: list[list[str]] = []
-    ready = [name for name, deg in in_degree.items() if deg == 0]
-
-    while ready:
-        waves.append(sorted(ready))
-        next_ready: list[str] = []
-        for name in ready:
-            for dependent in dependents[name]:
-                in_degree[dependent] -= 1
-                if in_degree[dependent] == 0:
-                    next_ready.append(dependent)
-        ready = next_ready
-
-    return waves
-
-
-async def run_task(
-    task_id: str,
-    task: Task,
-    session: AgentSession,
-    completed: dict[str, Task],
-) -> None:
-    """Execute a single task as a cache-safe fork."""
-    format_vars: dict[str, str] = {"product": PRODUCT}
-    for cid, ctask in completed.items():
-        format_vars[cid] = ctask.result
-
-    prompt = task.prompt_template.format(**format_vars)
-
-    t0 = time.time()
-    result = await session.fork(
-        prompt=prompt,
-        policy=ForkPolicy.cache_safe_ephemeral(),
     )
-    task.elapsed = time.time() - t0
-    task.result = result.final_text
-    task.usage = result.usage
+
+    return dag
 
 
 async def main() -> None:
@@ -208,87 +163,69 @@ async def main() -> None:
     elif os.getenv("GEMINI_API_KEY"):
         model = "gemini/gemini-2.5-flash"
     else:
-        print("Set GEMINI_API_KEY or OPENAI_API_KEY in .env")
+        print("Set OPENAI_API_KEY or GEMINI_API_KEY in .env")
         return
 
     provider = LiteLLMSDKProvider()
-    session = AgentSession(
-        model=model,
-        provider=provider,
-        system_prompt=SYSTEM_PROMPT,
-    )
+    dag = build_dag()
+    runner = DAGRunner(provider)
 
     print(f"Model:   {model}")
     print(f"Product: {PRODUCT}")
     print(f"System prompt: ~{len(SYSTEM_PROMPT):,} chars")
     print()
 
-    waves = topological_sort(TASKS)
+    waves = dag.topological_waves()
     print("DAG schedule:")
     for i, wave in enumerate(waves):
-        tasks_str = ", ".join(f"{TASKS[t].name}" for t in wave)
+        tasks_str = ", ".join(dag.get(t).name for t in wave)
         print(f"  Wave {i+1}: {tasks_str}" + (" (parallel)" if len(wave) > 1 else ""))
     print()
 
-    # Warm up the session so forks have a cached prefix
-    warmup = await session.respond(
-        f"We are planning a product: {PRODUCT}. Acknowledge briefly."
-    )
-    total_usage = warmup.usage
-
-    print("=" * 60)
-    print("EXECUTING DAG")
-    print("=" * 60)
-
     t0 = time.time()
-    completed: dict[str, Task] = {}
+    result = await runner.run(
+        dag,
+        model=model,
+        system_prompt=SYSTEM_PROMPT,
+        context_vars={"product": PRODUCT},
+    )
+    total_elapsed = time.time() - t0
 
-    for wave_idx, wave in enumerate(waves):
-        wave_names = ", ".join(TASKS[t].name for t in wave)
-        parallel_tag = f" ({len(wave)} parallel)" if len(wave) > 1 else ""
-        print(f"\n--- Wave {wave_idx + 1}{parallel_tag}: {wave_names} ---")
+    print("=" * 60)
+    print("TASK RESULTS")
+    print("=" * 60)
 
-        async def _run(tid: str) -> None:
-            await run_task(tid, TASKS[tid], session, completed)
-
-        await asyncio.gather(*[_run(tid) for tid in wave])
-
+    for wave in result.waves:
         for tid in wave:
-            task = TASKS[tid]
-            completed[tid] = task
-            total_usage = total_usage + task.usage
+            task = result.tasks[tid]
             print(f"\n  [{task.name}] ({task.elapsed:.1f}s)")
             print(f"    Tokens: {task.usage.total_tokens:,} "
                   f"| Cached: {task.usage.cache_read_input_tokens:,}")
             preview = task.result[:200].replace("\n", " ")
             print(f"    Preview: {preview}...")
 
-    elapsed = time.time() - t0
-
-    # --- Final review output ---
     print("\n" + "=" * 60)
     print("FINAL REVIEW")
     print("=" * 60)
-    print(f"\n{TASKS['final_review'].result}")
+    print(f"\n{result.task_result('final_review')}")
 
-    # --- Stats ---
     print("\n" + "=" * 60)
     print("DAG EXECUTION STATS")
     print("=" * 60)
-    print(f"  Tasks:              {len(TASKS)}")
-    print(f"  Waves:              {len(waves)}")
-    parallel_tasks = sum(len(w) for w in waves if len(w) > 1)
-    print(f"  Parallelized:       {parallel_tasks}/{len(TASKS)} tasks")
-    print(f"  Total input tokens: {total_usage.input_tokens:,}")
-    print(f"  Total output tokens:{total_usage.output_tokens:,}")
-    print(f"  Cache read tokens:  {total_usage.cache_read_input_tokens:,}")
-    print(f"  Cache hit rate:     {total_usage.cache_hit_rate:.1%}")
-    print(f"  Total tokens:       {total_usage.total_tokens:,}")
-    print(f"  Wall time:          {elapsed:.1f}s")
+    print(f"  Tasks:              {len(result.tasks)}")
+    print(f"  Waves:              {len(result.waves)}")
+    print(f"  Parallelized:       {result.parallelized_count}/{len(result.tasks)} tasks")
+    print(f"  Total input tokens: {result.usage.input_tokens:,}")
+    print(f"  Total output tokens:{result.usage.output_tokens:,}")
+    print(f"  Cache read tokens:  {result.usage.cache_read_input_tokens:,}")
+    print(f"  Cache hit rate:     {result.usage.cache_hit_rate:.1%}")
+    print(f"  Total tokens:       {result.usage.total_tokens:,}")
+    print(f"  Wall time:          {total_elapsed:.1f}s")
+    print(f"  DAG execution:      {result.elapsed:.1f}s")
 
-    sequential_time = sum(t.elapsed for t in TASKS.values())
-    if sequential_time > 0:
-        speedup = sequential_time / elapsed
+    sequential_time = sum(t.elapsed for t in result.tasks.values())
+    if sequential_time > 0 and result.elapsed > 0:
+        speedup = sequential_time / result.elapsed
         print(f"\n  Sequential would take: {sequential_time:.1f}s")
         print(f"  DAG speedup:           {speedup:.2f}x")
 

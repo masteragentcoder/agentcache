@@ -88,11 +88,12 @@ class AgentSession:
         self,
         prompt: str,
         policy: ForkPolicy | None = None,
+        tool_executor: Any | None = None,
     ) -> ForkResult:
         policy = policy or ForkPolicy.cache_safe_ephemeral()
         cache_safe = self.last_cache_safe_params or CacheSafeParamsFactory.from_session(self)
 
-        runner = ForkRunner(self.provider)
+        runner = ForkRunner(self.provider, tool_executor=tool_executor)
         return await runner.run(
             parent=self,
             prompt_messages=[Message.user(prompt)],
