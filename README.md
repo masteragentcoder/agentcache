@@ -45,6 +45,19 @@ status = session.cache_status()
 print(status)
 ```
 
+## Examples
+
+We've provided a suite of examples showing different ways to use `agentcache`, from simple helpers to complex multi-agent swarms. Check out the `examples/` directory:
+
+| Example | Description |
+|---|---|
+| [`basic_chat.py`](examples/basic_chat.py) | The simplest usage: create a session, send a message, check cache status. |
+| [`side_question.py`](examples/side_question.py) | Shows how to branch a conversation: fork a cache-safe, ephemeral helper *after* a main turn. |
+| [`deep_research.py`](examples/deep_research.py) | **(Recommended)** A powerful multi-agent workflow. Spawns N parallel workers exploring different angles of a topic, then synthesizes their reports—all sharing a single cacheable prefix. |
+| [`smoke_test_cache.py`](examples/smoke_test_cache.py) | Validates that cache tracking actually works by padding a system prompt past the 1,024-token minimum (for Anthropic/OpenAI) and reporting hit rates. |
+| [`interactive_research.ipynb`](examples/interactive_research.ipynb) | A Jupyter Notebook version of the deep research example, demonstrating how `agentcache` works cleanly in `nest_asyncio` interactive environments. |
+| [`agentcache-research-skill/`](examples/agentcache-research-skill/) | A Cursor/Codex AI Skill demonstrating how you can wrap `agentcache` into a reusable tool for your own AI coding assistant. |
+
 ## Supply-chain note
 
 LiteLLM is pinned to `==1.83.0`. Versions 1.82.7 and 1.82.8 had reported malicious releases on PyPI. Upgrades should be deliberate, hash-locked, and tested against cache-compatibility regressions.
