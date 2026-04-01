@@ -1,4 +1,4 @@
-# agentcache
+# agentcache ⚡️
 
 Cache-aware orchestration for LLM agents.
 
