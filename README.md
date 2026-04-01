@@ -45,6 +45,49 @@ status = session.cache_status()
 print(status)
 ```
 
+## How cache-safe forks save tokens
+
+The core idea: when you fork a helper agent, it shares the parent session's exact prompt prefix. The provider caches that prefix, so every worker pays only for its unique suffix -- not the full context again.
+
+Here's a real run of [`deep_research.py`](examples/deep_research.py) on OpenAI `gpt-4o-mini` with a ~2,700-token system prompt:
+
+```
+Call 1 (plan research):    2,706 input tokens | 0 cached      (cache creation)
+Call 2 (worker fork):      2,783 input tokens | 2,688 cached   (96% cache hit)
+Call 3 (worker fork):      2,847 input tokens | 2,816 cached   (99% cache hit)
+Call 4 (synthesis fork):   2,872 input tokens | 2,816 cached   (98% cache hit)
+```
+
+**Without cache-safe forks**, every worker would re-process the full prefix. With 3 workers + synthesis, that's ~8,500 tokens billed at full price. **With agentcache**, only the first call pays full price; the rest get a 50% discount on the cached portion (OpenAI pricing) or 90% discount (Anthropic pricing).
+
+On a larger research run (3 parallel workers + synthesis, ~27k total tokens):
+
+```
+Workers:            3
+Total input tokens: 16,346
+Cache read tokens:  2,036
+Total tokens:       26,971
+Cache hit rate:     46.9%
+Wall time:          37.0s
+```
+
+The savings compound as the system prompt and conversation history grow. A 100k-token context with 5 parallel workers would save ~450k input tokens worth of re-processing.
+
+### Cache-break detection
+
+When something does break the cache (system prompt edit, tool schema change, model swap), agentcache tells you exactly what happened:
+
+```
+Cache break detected.
+Primary causes:
+  - system prompt changed (+321 chars)
+  - tool schema changed
+Previous cache-read tokens: 142,880
+Current cache-read tokens: 22,110
+```
+
+No more guessing why your bill spiked.
+
 ## Examples
 
 We've provided a suite of examples showing different ways to use `agentcache`, from simple helpers to complex multi-agent swarms. Check out the `examples/` directory:
