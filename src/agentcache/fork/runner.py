@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Awaitable
 
 from agentcache.cache.cache_safe_params import CacheSafeParams
 from agentcache.cache.compatibility import CacheCompatibilityChecker, CompatibilityLevel
+from agentcache.compact.tool_budget import ToolResultBudgeter
 from agentcache.core.errors import CacheUnsafeForkError
 from agentcache.core.messages import Message
 from agentcache.core.usage import Usage
@@ -31,6 +32,7 @@ class ForkRunner:
     ) -> None:
         self.provider = provider
         self.tool_executor = tool_executor
+        self._budgeter = ToolResultBudgeter()
 
     async def run(
         self,
@@ -57,6 +59,10 @@ class ForkRunner:
         while turns_used < max_turns:
             if ctx.abort.aborted:
                 break
+
+            fork_messages = self._budgeter.enforce(
+                fork_messages, ctx.replacement_state
+            )
 
             response = await self.provider.complete(
                 model=cache_safe.model,

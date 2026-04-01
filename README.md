@@ -280,6 +280,26 @@ Providers *do* cache automatically -- but only when you send the same prefix. Ma
 
 agentcache doesn't replace your provider's caching -- it structures your calls so the caching actually fires. Some frameworks (notably LangGraph) support shared state and could achieve similar results with careful design, but agentcache makes prefix preservation the default.
 
+### Text injection vs prefix forks (head-to-head)
+
+Most multi-agent frameworks (including [open-multi-agent](https://github.com/openai/open-multi-agent)) coordinate workers by injecting context as text into **separate sessions**. Each worker starts a fresh conversation, so there's no shared prefix and no cache hits.
+
+[`cache_comparison.py`](examples/cache_comparison.py) runs both patterns on the same task (coordinator + 3 workers, `gpt-4o-mini`):
+
+```
+                                Text injection    Prefix fork
+Total input tokens                     3,804          5,571
+Cached tokens                              0          4,224
+Cache hit rate                          0.0%          75.8%
+Wall time                              85.7s          37.4s
+```
+
+Text injection: each worker gets a fresh session with the system prompt + task pasted in. The provider sees 4 unrelated calls -- zero cache reuse.
+
+Prefix fork: all workers fork from one session. The provider sees the same prefix repeated -- **90% cache hit per worker**, plus parallel execution cuts wall time in half.
+
+The total input is slightly higher with forks (workers inherit the full conversation prefix, not just a summary), but the cache discount more than compensates. On Anthropic, those 4,224 cached tokens would cost 90% less; on OpenAI, model-dependent discounts apply.
+
 ### Benchmark results (from repo examples)
 
 Run of [`deep_research.py`](examples/deep_research.py) on `gpt-4o-mini`:
@@ -381,6 +401,8 @@ This matters because coding agents like Cursor, Windsurf, and Claude Code genera
 | [`deep_research.py`](examples/deep_research.py) | **(Recommended)** Parallel workers explore different angles, then synthesize -- all sharing one cached prefix. |
 | [`agent_team.py`](examples/agent_team.py) | Multi-agent team using `TeamRunner`: coordinator + 3 specialists. 38.2% cache hit rate in our runs. |
 | [`task_dag.py`](examples/task_dag.py) | Task DAG using `DAGRunner`: 7 tasks, topological waves, 1.64x speedup. |
+| [`cache_comparison.py`](examples/cache_comparison.py) | **Head-to-head**: text-injection (0% cache) vs prefix forks (75.8% cache, 2.3x faster). |
+| [`compaction_demo.py`](examples/compaction_demo.py) | Microcompaction in action: tool-result budgeting, stale-result clearing, thinking-block trimming. No API key needed. |
 | [`smoke_test_cache.py`](examples/smoke_test_cache.py) | Validates cache tracking with a padded system prompt past the 1,024-token minimum. |
 | [`interactive_research.ipynb`](examples/interactive_research.ipynb) | Jupyter Notebook version of deep research with `nest_asyncio`. |
 | [`agentcache-research-skill/`](examples/agentcache-research-skill/) | Cursor/Codex AI Skill wrapping agentcache for your coding assistant. |
