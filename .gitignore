@@ -43,3 +43,7 @@ htmlcov/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Documents not to push
+design.md
+impl_details.md
