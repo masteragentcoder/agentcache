@@ -7,6 +7,17 @@ Cache-aware multi-agent orchestration for LLM agents.
 In our benchmark runs, forked agents hit **80-99% cache rates** on the shared prefix. A 4-worker research team saves ~9,000 cached tokens per run. A 7-task DAG runs 1.6x faster than sequential with 35% overall cache hits.
 
 
+### What agentcache does
+
+| Checked | Built in |
+|---|---|
+| [x] Prefix-cached agent forking | Fork subagents without rebuilding the shared prompt prefix |
+| [x] Tool handling | Preserve tool schemas, tool state, and tool results across forks |
+| [x] Parallel execution | Run independent workers and DAG waves in parallel |
+| [x] Cache-break detection | Explain exactly what changed when cache hits drop |
+| [x] Microcompaction | Trim stale context without losing cache alignment |
+
+
 ## Install
 
 ```bash
